@@ -9,7 +9,7 @@ load_dotenv()
 app = FastAPI()
 API_KEY = os.getenv("API_KEY")
 CR_API_KEY = os.getenv("CLASH_ROYALE_API_KEY")
-CR_API_URL = "https://api.clashroyale.com/v1"
+CR_API_URL = "https://proxy.royaleapi.dev/v1"
 
 all_small_spells = set(["Mirror", "Arrows", "Zap", "Giant Snowball", "Royal Delivery", "Vines", "Barbarian Barrel", "Goblin Curse", "Rage", "Clone", "Tornado", "Void", "The Log"])
 all_big_spells = set(["Fireball", "Rocket", "Earthquake", "Lightning", "Poison", "Freeze"])
