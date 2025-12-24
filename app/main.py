@@ -97,3 +97,18 @@ async def get_deck_by_name(player_data: Dict[Any, Any]):
         deck = [card["name"] for card in deck]
         
         return {"deck": deck}
+
+@app.post("/get_small_spells", dependencies=[Depends(verify_api_key)])
+async def get_small_spells(data: Dict[Any, Any]):
+    deck = data['args']['deck']
+    return {"small_spells": [card for card in deck if card in all_small_spells]}
+
+@app.post("/get_big_spells", dependencies=[Depends(verify_api_key)])
+async def get_big_spells(data: Dict[Any, Any]):
+    deck = data['args']['deck']
+    return {"big_spells": [card for card in deck if card in all_big_spells]}
+
+@app.post("/get_win_conditions", dependencies=[Depends(verify_api_key)])
+async def get_win_conditions(data: Dict[Any, Any]):
+    deck = data['args']['deck']
+    return {"win_conditions": [card for card in deck if card in all_win_conditions]}
