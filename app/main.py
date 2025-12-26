@@ -1,5 +1,10 @@
 import os
 import httpx
+import io
+import subprocess
+import asyncio
+import pytesseract
+from PIL import Image, ImageOps
 from typing import Dict, Any
 from fastapi import FastAPI, Header, HTTPException, Depends
 from dotenv import load_dotenv
@@ -20,9 +25,49 @@ def verify_api_key(authorization: str = Header(None, description = "Authorizatio
     if authorization != f"Bearer {API_KEY}":
         raise HTTPException(status_code=401)
 
+def perform_ocr_scan():
+    adb_target = f"{TAILSCALE_PHONE_IP}:5555"
+    
+    try:
+        result = subprocess.run(
+            ["adb", "-s", adb_target, "exec-out", "screencap", "-p"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True
+        )
+        
+        img = Image.open(io.BytesIO(result.stdout))
+        w, h = img.size
+
+        left, top, right, bottom = w * 0.20, h * 0.02, w * 0.80, h * 0.12
+        crop = img.crop((left, top, right, bottom))
+
+        gray = ImageOps.grayscale(crop)
+        upscaled = gray.resize((crop.width * 2, crop.height * 2), Image.Resampling.LANCZOS)
+        final_img = ImageOps.invert(upscaled)
+
+        raw_text = pytesseract.image_to_string(final_img, config='--psm 6').strip()
+        lines = [line.strip() for line in raw_text.split('\n') if line.strip()]
+
+        return {
+            "player_name": lines[0] if len(lines) > 0 else "Unknown",
+            "clan_name": lines[1] if len(lines) > 1 else "Unknown"
+        }
+    except Exception as e:
+        return {"error": str(e), "player_name": "Error", "clan_name": "Error"}
+
 @app.get("/health", dependencies=[Depends(verify_api_key)])
 def health():
     return {"status": "ok"}
+
+@app.post("/scan_opponent", dependencies=[Depends(verify_api_key)])
+async def scan_opponent():
+    data = await asyncio.to_thread(perform_ocr_scan)
+    
+    if "error" in data:
+        raise HTTPException(status_code=500, detail=data["error"])
+        
+    return data
 
 @app.post("/get_deck_by_name", dependencies=[Depends(verify_api_key)])
 async def get_deck_by_name(player_data: Dict[Any, Any]):

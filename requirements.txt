@@ -2,6 +2,5 @@ fastapi
 uvicorn[standard]
 httpx
 python-dotenv
-opencv-python
 pytesseract
-numpy
+Pillow
