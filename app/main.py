@@ -3,8 +3,8 @@ import httpx
 import io
 import subprocess
 import asyncio
-import pytesseract
-from PIL import Image, ImageOps
+from google import genai
+from PIL import Image, ImageOps, ImageEnhance
 from typing import Dict, Any
 from fastapi import FastAPI, Header, HTTPException, Depends
 from dotenv import load_dotenv
@@ -14,8 +14,11 @@ load_dotenv()
 app = FastAPI()
 API_KEY = os.getenv("API_KEY")
 CR_API_KEY = os.getenv("CLASH_ROYALE_API_KEY")
-CR_API_URL = "https://proxy.royaleapi.dev/v1"
 TAILSCALE_PHONE_IP = os.getenv("PHONE_IP")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+CR_API_URL = "https://proxy.royaleapi.dev/v1"
+client = genai.Client(api_key=GEMINI_API_KEY)
 
 all_small_spells = set(["Mirror", "Arrows", "Zap", "Giant Snowball", "Royal Delivery", "Vines", "Barbarian Barrel", "Goblin Curse", "Rage", "Clone", "Tornado", "Void", "The Log"])
 all_big_spells = set(["Fireball", "Rocket", "Earthquake", "Lightning", "Poison", "Freeze"])
@@ -25,56 +28,54 @@ def verify_api_key(authorization: str = Header(None, description = "Authorizatio
     if authorization != f"Bearer {API_KEY}":
         raise HTTPException(status_code=401)
 
-def perform_ocr_scan():
-    adb_target = f"{TAILSCALE_PHONE_IP}:5555"
-    
-    try:
-        result = subprocess.run(
-            ["adb", "-s", adb_target, "exec-out", "screencap", "-p"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            check=True
-        )
-        
-        img = Image.open(io.BytesIO(result.stdout))
-        w, h = img.size
-
-        left, top, right, bottom = w * 0.20, h * 0.02, w * 0.80, h * 0.12
-        crop = img.crop((left, top, right, bottom))
-
-        gray = ImageOps.grayscale(crop)
-        upscaled = gray.resize((crop.width * 2, crop.height * 2), Image.Resampling.LANCZOS)
-        final_img = ImageOps.invert(upscaled)
-
-        raw_text = pytesseract.image_to_string(final_img, config='--psm 6').strip()
-        lines = [line.strip() for line in raw_text.split('\n') if line.strip()]
-
-        return {
-            "player_name": lines[0] if len(lines) > 0 else "Unknown",
-            "clan_name": lines[1] if len(lines) > 1 else "Unknown"
-        }
-    except Exception as e:
-        return {"error": str(e), "player_name": "Error", "clan_name": "Error"}
-
 @app.get("/health", dependencies=[Depends(verify_api_key)])
 def health():
     return {"status": "ok"}
 
-@app.post("/scan_opponent", dependencies=[Depends(verify_api_key)])
-async def scan_opponent():
-    data = await asyncio.to_thread(perform_ocr_scan)
+@app.post("/get_deck_from_name", dependencies=[Depends(verify_api_key)])
+async def get_deck_from_name():
+    adb_target = f"{TAILSCALE_PHONE_IP}:5555"
     
-    if "error" in data:
-        raise HTTPException(status_code=500, detail=data["error"])
-        
-    return data
+    try:
+        my_env = os.environ.copy()
+        my_env["ALL_PROXY"] = "socks5://localhost:1055"
 
-@app.post("/get_deck_by_name", dependencies=[Depends(verify_api_key)])
-async def get_deck_by_name(player_data: Dict[Any, Any]):
-    args = player_data.get("args", {})
-    player_name = args.get("player_name")
-    clan_name = args.get("clan_name")
-    trophy_count = args.get("trophy_count")
+        result = subprocess.run(
+            f"adb -s {adb_target} exec-out screencap -p",
+            shell=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+            env=my_env
+        )
+        
+        img = Image.open(io.BytesIO(result.stdout))
+    except subprocess.CalledProcessError as e:
+        return {"error": "ADB failed. Is the phone screen on?", "details": str(e.stderr)}
+    except Exception as e:
+        return {"error": str(e)}
+    w, h = img.size
+    left = w * 0.09
+    top = h * 0.07
+    right = w * 0.45
+    bottom = h * 0.12
+    
+    crop = img.crop((left, top, right, bottom))
+
+    prompt = "Extract the player name and clan name from this image. Return them as a simple list separated by a comma (e.g., PlayerName, ClanName)."
+    try:
+        response = client.models.generate_content(
+            model="gemini-2.5-flash-lite", 
+            contents=[prompt, crop]
+        )
+        
+        raw_text = response.text.strip()
+    
+        text_parts = [item.strip() for item in raw_text.split(',')]
+        player_name = text_parts[0] if len(text_parts) > 0 else "N/A"
+        clan_name = text_parts[1] if len(text_parts) > 1 else "N/A"
+    except Exception as e:
+        return {"status": "Error", "stage": "Gemini API", "message": str(e)}
 
     get_clan_by_name_url = f"{CR_API_URL}/clans"
     get_clan_by_name_params = {
@@ -86,9 +87,9 @@ async def get_deck_by_name(player_data: Dict[Any, Any]):
         "Authorization": f"Bearer {CR_API_KEY}"
     }
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient() as http_client:
         try: 
-            response = await client.get(get_clan_by_name_url, headers=headers, params=get_clan_by_name_params)
+            response = await http_client.get(get_clan_by_name_url, headers=headers, params=get_clan_by_name_params)
             response.raise_for_status()
         except httpx.HTTPStatusError as e:
             raise HTTPException(status_code=500, detail=f"API Error: {e}")
@@ -107,7 +108,7 @@ async def get_deck_by_name(player_data: Dict[Any, Any]):
         
         get_clan_by_id_url = f"{CR_API_URL}/clans/{clan_id.replace('#', '%23')}"
         try: 
-            response = await client.get(get_clan_by_id_url, headers=headers)
+            response = await http_client.get(get_clan_by_id_url, headers=headers)
             response.raise_for_status()
         except httpx.HTTPStatusError as e:
             raise HTTPException(status_code=500, detail=f"API Error: {e}")
@@ -115,9 +116,7 @@ async def get_deck_by_name(player_data: Dict[Any, Any]):
             raise HTTPException(status_code=500, detail=f"Internal Server Error: {e}")
         
         clan_data = response.json()
-        print("This is the clan data: ", clan_data["memberList"])
         clan_members = clan_data["memberList"]
-        print("This is the player_name: ", player_name)
         player_tag = ""
         for member in clan_members:
             if member["name"] == player_name:
@@ -129,7 +128,7 @@ async def get_deck_by_name(player_data: Dict[Any, Any]):
 
         get_battlelog_by_tag_url = f"{CR_API_URL}/players/{player_tag.replace('#', '%23')}/battlelog"
         try: 
-            response = await client.get(get_battlelog_by_tag_url, headers=headers)
+            response = await http_client.get(get_battlelog_by_tag_url, headers=headers)
             response.raise_for_status()
         except httpx.HTTPStatusError as e:
             raise HTTPException(status_code=500, detail=f"API Error: {e}")

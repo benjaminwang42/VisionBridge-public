@@ -1,11 +1,10 @@
 [phases.setup]
-nixPkgs = ["python3", "android-tools", "tailscale", "tesseract", "tesseract-ocr-eng"]
+nixPkgs = ["python3", "android-tools", "tailscale"]
 
-[phases.start]
-cmd = """
-tailscaled --tun=userspace-networking --statedir=/app/tailscale_state --state=mem: & 
-sleep 5 && 
-tailscale up --authkey=$TAILSCALE_AUTHKEY --hostname=railway-bot && 
-adb connect $PHONE_IP:5555 && 
-python main.py
-"""
+[phases.prestart]
+cmds = [
+  'mkdir -p /root/.android',
+  'echo "$ADB_PRIVATE_KEY" > /root/.android/adbkey',
+  'echo "$ADB_PUBLIC_KEY" > /root/.android/adbkey.pub',
+  'chmod 600 /root/.android/adbkey'
+]

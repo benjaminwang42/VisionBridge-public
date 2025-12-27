@@ -1,6 +1,6 @@
 fastapi
-uvicorn[standard]
+uvicorn
 httpx
+google-genai
+pillow
 python-dotenv
-pytesseract
-Pillow
