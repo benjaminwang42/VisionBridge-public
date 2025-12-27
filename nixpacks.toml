@@ -11,3 +11,6 @@ cmds = [
   'echo "$ADB_PUBLIC_KEY" > /root/.android/adbkey.pub',
   'chmod 600 /root/.android/adbkey'
 ]
+
+[variables]
+    PATH = "$PATH:/usr/local/bin"
