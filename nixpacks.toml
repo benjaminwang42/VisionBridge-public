@@ -2,17 +2,6 @@
 nixPkgs = ["python3", "android-tools", "tailscale"]
 
 [phases.build]
-cmds = ["pip install -r requirements.txt"]
-
-[phases.prestart]
-cmds = [
-  'mkdir -p /root/.android',
-  'echo "$ADB_PRIVATE_KEY" > /root/.android/adbkey',
-  'echo "$ADB_PUBLIC_KEY" > /root/.android/adbkey.pub',
-  'chmod 600 /root/.android/adbkey'
-]
-
-[phases.build]
 cmds = [
   "pip install -r requirements.txt",
   "echo '--- DEBUG: LOCATING BINARIES ---'",
@@ -22,5 +11,13 @@ cmds = [
   "ls -l /nix/var/nix/profiles/default/bin/tailscale || echo 'Not in default profile'"
 ]
 
+[phases.prestart]
+cmds = [
+  'mkdir -p /root/.android',
+  'echo "$ADB_PRIVATE_KEY" > /root/.android/adbkey',
+  'echo "$ADB_PUBLIC_KEY" > /root/.android/adbkey.pub',
+  'chmod 600 /root/.android/adbkey'
+]
+
 [variables]
-    PATH = "$PATH:/usr/local/bin"
+PATH = "$PATH:/root/.nix-profile/bin:/nix/var/nix/profiles/default/bin:/usr/local/bin"
