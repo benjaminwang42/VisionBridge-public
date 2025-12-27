@@ -12,5 +12,15 @@ cmds = [
   'chmod 600 /root/.android/adbkey'
 ]
 
+[phases.build]
+cmds = [
+  "pip install -r requirements.txt",
+  "echo '--- DEBUG: LOCATING BINARIES ---'",
+  "find /nix/store -name tailscale -type f -executable -maxdepth 4 2>/dev/null | head -n 5",
+  "find /nix/store -name adb -type f -executable -maxdepth 4 2>/dev/null | head -n 5",
+  "ls -l /root/.nix-profile/bin/tailscale || echo 'Not in root profile'",
+  "ls -l /nix/var/nix/profiles/default/bin/tailscale || echo 'Not in default profile'"
+]
+
 [variables]
     PATH = "$PATH:/usr/local/bin"

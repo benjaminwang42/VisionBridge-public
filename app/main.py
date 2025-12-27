@@ -9,6 +9,16 @@ from typing import Dict, Any
 from fastapi import FastAPI, Header, HTTPException, Depends
 from dotenv import load_dotenv
 
+print("--- RUNTIME DEBUGGING PLEASE I NEED THIS TO WORK ---")
+print(f"Current PATH: {os.environ.get('PATH')}")
+print(f"Tailscale path: {shutil.which('tailscale')}")
+print(f"ADB path: {shutil.which('adb')}")
+try:
+    print(f"Whoami: {subprocess.check_output('whoami', shell=True).decode().strip()}")
+except:
+    print("Whoami failed")
+print("---------------------")
+
 load_dotenv()
 
 app = FastAPI()
