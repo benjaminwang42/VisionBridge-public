@@ -1,6 +1,9 @@
 [phases.setup]
 nixPkgs = ["python3", "android-tools", "tailscale"]
 
+[phases.build]
+cmds = ["pip install -r requirements.txt"]
+
 [phases.prestart]
 cmds = [
   'mkdir -p /root/.android',
