@@ -9,16 +9,6 @@ from typing import Dict, Any
 from fastapi import FastAPI, Header, HTTPException, Depends
 from dotenv import load_dotenv
 
-print("--- RUNTIME DEBUGGING PLEASE I NEED THIS TO WORK ---")
-print(f"Current PATH: {os.environ.get('PATH')}")
-print(f"Tailscale path: {shutil.which('tailscale')}")
-print(f"ADB path: {shutil.which('adb')}")
-try:
-    print(f"Whoami: {subprocess.check_output('whoami', shell=True).decode().strip()}")
-except:
-    print("Whoami failed")
-print("---------------------")
-
 load_dotenv()
 
 app = FastAPI()
@@ -46,17 +36,14 @@ def health():
 async def get_deck_from_name():
     adb_target = f"{TAILSCALE_PHONE_IP}:5555"
     
+    subprocess.run(f"adb connect {adb_target}", shell=True)
     try:
-        my_env = os.environ.copy()
-        my_env["ALL_PROXY"] = "socks5://localhost:1055"
-
         result = subprocess.run(
             f"adb -s {adb_target} exec-out screencap -p",
             shell=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=True,
-            env=my_env
         )
         
         img = Image.open(io.BytesIO(result.stdout))
