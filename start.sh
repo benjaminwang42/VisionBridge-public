@@ -8,14 +8,14 @@ if [ -n "$ADB_PRIVATE_KEY" ] && [ -n "$ADB_PUBLIC_KEY" ]; then
     chmod 644 /root/.android/adbkey.pub
 fi
 
-if [ -n "$TAILSCALE_AUTH_KEY" ]; then
+if [ -n "$TAILSCALE_AUTHKEY" ]; then
     echo "=== Starting Tailscale ==="
     
-    if echo "$TAILSCALE_AUTH_KEY" | grep -q "^tskey-"; then
+    if echo "$TAILSCALE_AUTHKEY" | grep -q "^tskey-"; then
         echo "✓ Auth key format appears valid"
     else
         echo "⚠ WARNING: Auth key format may be invalid (should start with 'tskey-')"
-        echo "Current key starts with: $(echo "$TAILSCALE_AUTH_KEY" | cut -c1-10)..."
+        echo "Current key starts with: $(echo "$TAILSCALE_AUTHKEY" | cut -c1-10)..."
     fi
     
     mkdir -p /var/lib/tailscale
@@ -49,7 +49,7 @@ if [ -n "$TAILSCALE_AUTH_KEY" ]; then
         RETRY_COUNT=$((RETRY_COUNT + 1))
         echo "Attempting Tailscale authentication (attempt $RETRY_COUNT/$MAX_RETRIES)..."
         
-        AUTH_OUTPUT=$(tailscale up --authkey="${TAILSCALE_AUTH_KEY}" --hostname=railway-service --accept-dns=false 2>&1)
+        AUTH_OUTPUT=$(tailscale up --authkey="${TAILSCALE_AUTHKEY}" --hostname=railway-service --accept-dns=false 2>&1)
         AUTH_EXIT_CODE=$?
         
         if [ $AUTH_EXIT_CODE -eq 0 ]; then
@@ -83,11 +83,11 @@ if [ -n "$TAILSCALE_AUTH_KEY" ]; then
         tailscale status || true
         echo "Checking tailscaled logs..."
         echo "This is likely due to:"
-        echo "1. Invalid or expired TAILSCALE_AUTH_KEY"
+        echo "1. Invalid or expired TAILSCALE_AUTHKEY"
         echo "2. Network connectivity issues to Tailscale control server"
         echo "3. Tailscale service outage"
         echo ""
-        echo "Please verify your TAILSCALE_AUTH_KEY in Railway environment variables"
+        echo "Please verify your TAILSCALE_AUTHKEY in Railway environment variables"
         echo "and check https://status.tailscale.com/ for service status"
         exit 1
     fi
@@ -110,7 +110,7 @@ if [ -n "$TAILSCALE_AUTH_KEY" ]; then
         echo "WARNING: PHONE_IP not set, skipping ADB connection"
     fi
 else
-    echo "ERROR: TAILSCALE_AUTH_KEY not provided, but required for this application"
+    echo "ERROR: TAILSCALE_AUTHKEY not provided, but required for this application"
     exit 1
 fi
 
