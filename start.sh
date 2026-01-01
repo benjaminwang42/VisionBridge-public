@@ -2,10 +2,26 @@
 
 mkdir -p /root/.android
 if [ -n "$ADB_PRIVATE_KEY" ] && [ -n "$ADB_PUBLIC_KEY" ]; then
+    echo "=== Setting up ADB keys ==="
     echo "$ADB_PRIVATE_KEY" > /root/.android/adbkey
     echo "$ADB_PUBLIC_KEY" > /root/.android/adbkey.pub
     chmod 600 /root/.android/adbkey
     chmod 644 /root/.android/adbkey.pub
+    
+    # Verify keys were written correctly
+    if [ -f /root/.android/adbkey ] && [ -f /root/.android/adbkey.pub ]; then
+        PRIVATE_KEY_SIZE=$(wc -c < /root/.android/adbkey)
+        PUBLIC_KEY_SIZE=$(wc -c < /root/.android/adbkey.pub)
+        echo "✓ ADB keys written successfully (private: ${PRIVATE_KEY_SIZE} bytes, public: ${PUBLIC_KEY_SIZE} bytes)"
+        
+        # Show first few characters of public key for verification
+        PUBLIC_KEY_PREVIEW=$(head -c 50 /root/.android/adbkey.pub)
+        echo "  Public key preview: ${PUBLIC_KEY_PREVIEW}..."
+    else
+        echo "⚠ WARNING: ADB keys may not have been written correctly"
+    fi
+else
+    echo "⚠ WARNING: ADB_PRIVATE_KEY or ADB_PUBLIC_KEY not set - device authorization may be required"
 fi
 
 if [ -n "$TAILSCALE_AUTHKEY" ]; then
@@ -95,27 +111,93 @@ if [ -n "$TAILSCALE_AUTHKEY" ]; then
     sleep 3
     
     if [ -n "$PHONE_IP" ]; then
-        echo "Connecting to ADB device at ${PHONE_IP}:5555"
+        echo "=== Connecting to ADB device ==="
+        echo "Target device: ${PHONE_IP}:5555"
         
-        adb kill-server
+        # Kill any existing ADB server to ensure it uses the new keys
+        echo "Stopping existing ADB server..."
+        adb kill-server 2>/dev/null || true
+        
+        # Small delay to ensure server is fully stopped
+        sleep 1
+        
+        # Start ADB server (this will use the keys we set up)
+        echo "Starting ADB server with configured keys..."
+        adb start-server
+        
         export NO_PROXY="localhost,127.0.0.1"
         export ALL_PROXY="socks5://localhost:1055"
         
+        # Initial connection attempt
+        echo "Attempting initial ADB connection..."
         timeout 15s adb connect ${PHONE_IP}:5555
         
-        sleep 2
+        # Wait and check device status with retries
+        MAX_AUTH_RETRIES=10
+        AUTH_RETRY_COUNT=0
+        DEVICE_AUTHORIZED=false
         
-        if adb devices | grep -q "${PHONE_IP}:5555.*device"; then
-            echo "✓ ADB connected successfully"
-            unset ALL_PROXY
-            unset NO_PROXY
-        else
-            echo "⚠ ADB connection failed or device unauthorized."
-            echo "Current status:"
-            adb devices
-            unset ALL_PROXY
-            unset NO_PROXY
+        while [ $AUTH_RETRY_COUNT -lt $MAX_AUTH_RETRIES ]; do
+            AUTH_RETRY_COUNT=$((AUTH_RETRY_COUNT + 1))
+            sleep 3
+            
+            DEVICE_STATUS=$(adb devices | grep "${PHONE_IP}:5555" || echo "")
+            
+            if echo "$DEVICE_STATUS" | grep -q "device$"; then
+                echo "✓ ADB connected and authorized successfully"
+                DEVICE_AUTHORIZED=true
+                break
+            elif echo "$DEVICE_STATUS" | grep -q "unauthorized"; then
+                echo "⚠ Device is connected but unauthorized (attempt $AUTH_RETRY_COUNT/$MAX_AUTH_RETRIES)"
+                
+                if [ -n "$ADB_PRIVATE_KEY" ] && [ -n "$ADB_PUBLIC_KEY" ]; then
+                    echo "   ADB keys are configured, but device is still showing as unauthorized"
+                    echo "   This may mean:"
+                    echo "   1. The ADB keys don't match what the device expects"
+                    echo "   2. The device needs to have this public key added to its authorized list"
+                    echo "   3. The device may need manual authorization the first time"
+                    echo ""
+                    echo "   Public key fingerprint (for verification):"
+                    if [ -f /root/.android/adbkey.pub ]; then
+                        head -c 100 /root/.android/adbkey.pub | tr -d '\n'
+                        echo ""
+                    fi
+                else
+                    echo "   ADB keys not configured - manual authorization required"
+                    echo "   Please accept the 'Allow USB debugging?' prompt on your phone"
+                fi
+                
+                # Try to reconnect to trigger the prompt again
+                if [ $AUTH_RETRY_COUNT -lt $MAX_AUTH_RETRIES ]; then
+                    timeout 10s adb connect ${PHONE_IP}:5555 > /dev/null 2>&1
+                fi
+            elif echo "$DEVICE_STATUS" | grep -q "offline"; then
+                echo "⚠ Device is offline (attempt $AUTH_RETRY_COUNT/$MAX_AUTH_RETRIES), reconnecting..."
+                timeout 10s adb connect ${PHONE_IP}:5555 > /dev/null 2>&1
+            elif [ -z "$DEVICE_STATUS" ]; then
+                echo "⚠ Device not found (attempt $AUTH_RETRY_COUNT/$MAX_AUTH_RETRIES), reconnecting..."
+                timeout 10s adb connect ${PHONE_IP}:5555 > /dev/null 2>&1
+            fi
+        done
+        
+        # Final status check
+        echo ""
+        echo "Final ADB device status:"
+        adb devices
+        
+        if [ "$DEVICE_AUTHORIZED" = false ]; then
+            echo ""
+            echo "⚠ WARNING: ADB device is not authorized or not connected"
+            echo "   The application will start but ADB operations may fail"
+            echo "   To fix this:"
+            echo "   1. Check your phone for a 'Allow USB debugging?' prompt"
+            echo "   2. Tap 'Allow' or 'Always allow from this computer'"
+            echo "   3. The device should then appear as 'device' instead of 'unauthorized'"
+            echo "   4. Restart the container if needed"
         fi
+        
+        unset ALL_PROXY
+        unset NO_PROXY
     fi
 else
     echo "ERROR: TAILSCALE_AUTHKEY not provided, but required for this application"
