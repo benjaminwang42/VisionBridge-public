@@ -36,15 +36,10 @@ def health():
 async def get_deck_from_name():
     proxy_prefix = "proxychains4 -f /etc/proxychains4.conf"
     adb_target = f"{TAILSCALE_PHONE_IP}:5555"
-
-    # prevent other APIs from going through phone proxy
-    adb_env = os.environ.copy()
-    adb_env["ALL_PROXY"] = "socks5://localhost:1055"
     
     connection_result = subprocess.run(
         f"{proxy_prefix} adb connect {adb_target}",
         shell=True,
-        env=adb_env,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
@@ -62,7 +57,6 @@ async def get_deck_from_name():
     devices_result = subprocess.run(
         f"{proxy_prefix} adb devices",
         shell=True,
-        env=adb_env,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True
@@ -80,7 +74,6 @@ async def get_deck_from_name():
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=True,
-            env=adb_env,
             timeout=10
         )
         
