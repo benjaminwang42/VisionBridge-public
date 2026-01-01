@@ -18,13 +18,26 @@ def forward_data(source, dest, label):
         while True:
             data = source.recv(4096)
             if not data:
+                # Connection closed normally
                 break
             dest.sendall(data)
+    except socket.timeout:
+        # Timeout is normal for idle connections, don't treat as error
+        # The connection will be closed when the other side closes or errors
+        pass
+    except (ConnectionResetError, BrokenPipeError, OSError) as e:
+        # Connection closed by peer - this is normal
+        pass
     except Exception as e:
-        print(f"Error in {label}: {e}", file=sys.stderr)
+        # Only log unexpected errors
+        if "timed out" not in str(e).lower():
+            print(f"Error in {label}: {e}", file=sys.stderr, flush=True)
     finally:
         try:
             source.close()
+        except:
+            pass
+        try:
             dest.close()
         except:
             pass
@@ -52,6 +65,11 @@ def forward_port(local_port, remote_host, remote_port, proxy_host, proxy_port):
                 try:
                     proxy_socket.connect((remote_host, remote_port))
                     print(f"Connected to {remote_host}:{remote_port} via SOCKS5", file=sys.stderr, flush=True)
+                    
+                    # Remove timeout after connection for long-lived ADB connections
+                    # ADB connections can be idle for extended periods
+                    proxy_socket.settimeout(None)
+                    client_socket.settimeout(None)
                     
                     # Start forwarding in both directions
                     t1 = threading.Thread(target=forward_data, args=(client_socket, proxy_socket, "client->remote"))
