@@ -97,24 +97,54 @@ if [ -n "$TAILSCALE_AUTHKEY" ]; then
         exit 1
     fi
     
-    sleep 3
+    # Wait for Tailscale to fully establish routes
+    echo "Waiting for Tailscale routes to stabilize..."
+    sleep 5
+    
+    # Show Tailscale status for debugging
+    echo "Tailscale status:"
+    tailscale status || true
+    echo ""
     
     if [ -n "$PHONE_IP" ]; then
         echo "=== Connecting to ADB device: ${PHONE_IP} ==="
+        
+        # Extract IP and port from PHONE_IP (format: IP:PORT)
+        PHONE_HOST=$(echo "${PHONE_IP}" | cut -d: -f1)
+        PHONE_PORT=$(echo "${PHONE_IP}" | cut -d: -f2)
+        
+        echo "Phone IP: ${PHONE_HOST}:${PHONE_PORT}"
+        echo "Testing if ${PHONE_HOST} is in Tailscale network..."
+        
+        # Check if the phone IP is a Tailscale IP (starts with 100.x.x.x)
+        if echo "${PHONE_HOST}" | grep -q "^100\."; then
+            echo "✓ Phone IP appears to be a Tailscale IP"
+        else
+            echo "⚠ Phone IP does not appear to be a Tailscale IP (expected 100.x.x.x)"
+        fi
+        
         adb kill-server 2>/dev/null || true
+        sleep 1
         adb start-server
-        sleep 2
+        sleep 3
         
-        proxychains4 -f /etc/proxychains4.conf adb connect ${PHONE_IP}
+        # Set ADB connection timeout
+        export ADB_INSTALL_TIMEOUT=30
         
-        MAX_AUTH_RETRIES=10
+        echo "Attempting initial ADB connection..."
+        proxychains4 -f /etc/proxychains4.conf adb connect ${PHONE_IP} 2>&1 || true
+        sleep 5
+        
+        MAX_AUTH_RETRIES=15
         AUTH_RETRY_COUNT=0
         DEVICE_AUTHORIZED=false
         
         while [ $AUTH_RETRY_COUNT -lt $MAX_AUTH_RETRIES ]; do
             AUTH_RETRY_COUNT=$((AUTH_RETRY_COUNT + 1))
-            sleep 3
-            DEVICE_STATUS=$(adb devices | grep "${PHONE_IP}" || echo "")
+            sleep 4
+            
+            # Use proxychains for adb devices too
+            DEVICE_STATUS=$(proxychains4 -f /etc/proxychains4.conf adb devices 2>/dev/null | grep "${PHONE_IP}" || echo "")
             
             if echo "$DEVICE_STATUS" | grep -q "device$"; then
                 echo "✓ ADB connected and authorized successfully"
@@ -123,26 +153,30 @@ if [ -n "$TAILSCALE_AUTHKEY" ]; then
             elif echo "$DEVICE_STATUS" | grep -q "unauthorized"; then
                 echo "⚠ Device is connected but unauthorized (attempt $AUTH_RETRY_COUNT/$MAX_AUTH_RETRIES)"
                 if [ -f /root/.android/adbkey.pub ]; then
+                    echo "ADB public key (first 100 chars):"
                     head -c 100 /root/.android/adbkey.pub | tr -d '\n'
                     echo ""
                 fi
-                proxychains4 -f /etc/proxychains4.conf adb connect ${PHONE_IP} > /dev/null 2>&1
+                echo "Reconnecting..."
+                proxychains4 -f /etc/proxychains4.conf adb connect ${PHONE_IP} 2>&1 || true
             elif echo "$DEVICE_STATUS" | grep -q "offline"; then
                 echo "⚠ Device is offline (attempt $AUTH_RETRY_COUNT/$MAX_AUTH_RETRIES), reconnecting..."
-                proxychains4 -f /etc/proxychains4.conf adb connect ${PHONE_IP} > /dev/null 2>&1
+                proxychains4 -f /etc/proxychains4.conf adb connect ${PHONE_IP} 2>&1 || true
             elif [ -z "$DEVICE_STATUS" ]; then
                 echo "⚠ Device not found (attempt $AUTH_RETRY_COUNT/$MAX_AUTH_RETRIES), reconnecting..."
-                proxychains4 -f /etc/proxychains4.conf adb connect ${PHONE_IP} > /dev/null 2>&1
+                proxychains4 -f /etc/proxychains4.conf adb connect ${PHONE_IP} 2>&1 || true
             fi
         done
         
         echo ""
         echo "Final ADB device status:"
-        proxychains4 -f /etc/proxychains4.conf adb devices
+        proxychains4 -f /etc/proxychains4.conf adb devices 2>&1 || adb devices
         
         if [ "$DEVICE_AUTHORIZED" = false ]; then
             echo ""
             echo "⚠ WARNING: ADB device is not authorized or not connected"
+            echo "Tailscale status:"
+            tailscale status || true
         fi
     fi
 else
