@@ -3,17 +3,18 @@
 mkdir -p /root/.android
 if [ -n "$ADB_PRIVATE_KEY" ] && [ -n "$ADB_PUBLIC_KEY" ]; then
     echo "=== Setting up ADB keys ==="
-    printf '%b' "$ADB_PRIVATE_KEY" > /root/.android/adbkey
-    printf '%b' "$ADB_PUBLIC_KEY" > /root/.android/adbkey.pub
+    printf '%s\n' "$ADB_PRIVATE_KEY" > /root/.android/adbkey
+    printf '%s\n' "$ADB_PUBLIC_KEY" > /root/.android/adbkey.pub
+    
     chmod 600 /root/.android/adbkey
     chmod 644 /root/.android/adbkey.pub
 
     echo "=== Verifying ADB key format ==="
-    if head -1 /root/.android/adbkey | grep -q "BEGIN.*PRIVATE KEY"; then
+    if head -n 1 /root/.android/adbkey | grep -q "BEGIN.*PRIVATE KEY"; then
         echo "✓ Private key format looks correct"
     else
         echo "⚠ WARNING: Private key may be malformed"
-        echo "First line: $(head -1 /root/.android/adbkey)"
+        echo "Actual First line: $(head -n 1 /root/.android/adbkey)"
     fi
 
     if [ -f /root/.android/adbkey.pub ]; then
