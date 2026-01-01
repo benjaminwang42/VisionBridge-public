@@ -34,6 +34,7 @@ def health():
 
 @app.post("/get_deck_from_name", dependencies=[Depends(verify_api_key)])
 async def get_deck_from_name():
+    proxy_prefix = "proxychains4 -f /etc/proxychains4.conf"
     adb_target = f"{TAILSCALE_PHONE_IP}:5555"
 
     # prevent other APIs from going through phone proxy
@@ -41,7 +42,7 @@ async def get_deck_from_name():
     adb_env["ALL_PROXY"] = "socks5://localhost:1055"
     
     connection_result = subprocess.run(
-        f"adb connect {adb_target}",
+        f"{proxy_prefix} adb connect {adb_target}",
         shell=True,
         env=adb_env,
         stdout=subprocess.PIPE,
@@ -59,7 +60,7 @@ async def get_deck_from_name():
     await asyncio.sleep(2)
 
     devices_result = subprocess.run(
-        "adb devices",
+        f"{proxy_prefix} adb devices",
         shell=True,
         env=adb_env,
         stdout=subprocess.PIPE,
@@ -74,7 +75,7 @@ async def get_deck_from_name():
         }
     try:
         result = subprocess.run(
-            f"adb -s {adb_target} exec-out screencap -p",
+            f"{proxy_prefix} adb -s {adb_target} exec-out screencap -p",
             shell=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
