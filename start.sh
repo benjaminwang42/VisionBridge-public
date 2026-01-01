@@ -3,8 +3,8 @@
 mkdir -p /root/.android
 if [ -n "$ADB_PRIVATE_KEY" ] && [ -n "$ADB_PUBLIC_KEY" ]; then
     echo "=== Setting up ADB keys ==="
-    echo "$ADB_PRIVATE_KEY" > /root/.android/adbkey
-    echo "$ADB_PUBLIC_KEY" > /root/.android/adbkey.pub
+    printf "%s\n" "$ADB_PRIVATE_KEY" > /root/.android/adbkey
+    printf "%s\n" "$ADB_PUBLIC_KEY" > /root/.android/adbkey.pub
     chmod 600 /root/.android/adbkey
     chmod 644 /root/.android/adbkey.pub
     
@@ -90,12 +90,12 @@ if [ -n "$TAILSCALE_AUTHKEY" ]; then
     sleep 3
     
     if [ -n "$PHONE_IP" ]; then
-        echo "=== Connecting to ADB device: ${PHONE_IP}:5555 ==="
+        echo "=== Connecting to ADB device: ${PHONE_IP} ==="
         adb kill-server 2>/dev/null || true
         sleep 2
         
         proxychains4 -f /etc/proxychains4.conf adb start-server
-        proxychains4 -f /etc/proxychains4.conf adb connect ${PHONE_IP}:5555
+        proxychains4 -f /etc/proxychains4.conf adb connect ${PHONE_IP}
         
         MAX_AUTH_RETRIES=10
         AUTH_RETRY_COUNT=0
@@ -104,7 +104,7 @@ if [ -n "$TAILSCALE_AUTHKEY" ]; then
         while [ $AUTH_RETRY_COUNT -lt $MAX_AUTH_RETRIES ]; do
             AUTH_RETRY_COUNT=$((AUTH_RETRY_COUNT + 1))
             sleep 3
-            DEVICE_STATUS=$(proxychains4 -f /etc/proxychains4.conf adb devices | grep "${PHONE_IP}:5555" || echo "")
+            DEVICE_STATUS=$(proxychains4 -f /etc/proxychains4.conf adb devices | grep "${PHONE_IP}" || echo "")
             
             if echo "$DEVICE_STATUS" | grep -q "device$"; then
                 echo "✓ ADB connected and authorized successfully"
@@ -116,13 +116,13 @@ if [ -n "$TAILSCALE_AUTHKEY" ]; then
                     head -c 100 /root/.android/adbkey.pub | tr -d '\n'
                     echo ""
                 fi
-                proxychains4 -f /etc/proxychains4.conf adb connect ${PHONE_IP}:5555 > /dev/null 2>&1
+                proxychains4 -f /etc/proxychains4.conf adb connect ${PHONE_IP} > /dev/null 2>&1
             elif echo "$DEVICE_STATUS" | grep -q "offline"; then
                 echo "⚠ Device is offline (attempt $AUTH_RETRY_COUNT/$MAX_AUTH_RETRIES), reconnecting..."
-                proxychains4 -f /etc/proxychains4.conf adb connect ${PHONE_IP}:5555 > /dev/null 2>&1
+                proxychains4 -f /etc/proxychains4.conf adb connect ${PHONE_IP} > /dev/null 2>&1
             elif [ -z "$DEVICE_STATUS" ]; then
                 echo "⚠ Device not found (attempt $AUTH_RETRY_COUNT/$MAX_AUTH_RETRIES), reconnecting..."
-                proxychains4 -f /etc/proxychains4.conf adb connect ${PHONE_IP}:5555 > /dev/null 2>&1
+                proxychains4 -f /etc/proxychains4.conf adb connect ${PHONE_IP} > /dev/null 2>&1
             fi
         done
         
