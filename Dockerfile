@@ -8,7 +8,15 @@ RUN apt-get update && apt-get install -y \
     proxychains4 \
     && rm -rf /var/lib/apt/lists/*
 
-RUN echo "strict_chain\nproxy_dns\nremote_dns_subnet 224\ntcp_read_time_out 15000\ntcp_connect_time_out 8000\n[ProxyList]\nsocks5 127.0.0.1 1055" > /etc/proxychains4.conf
+RUN printf "strict_chain\n\
+proxy_dns\n\
+remote_dns_subnet 224\n\
+tcp_read_time_out 15000\n\
+tcp_connect_time_out 8000\n\
+localnet 127.0.0.0/255.0.0.0\n\
+localnet ::1/128\n\
+[ProxyList]\n\
+socks5 127.0.0.1 1055\n" > /etc/proxychains4.conf
 
 RUN curl -fsSL https://tailscale.com/install.sh | sh
 
