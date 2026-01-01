@@ -35,7 +35,7 @@ def health():
 @app.post("/get_deck_from_name", dependencies=[Depends(verify_api_key)])
 async def get_deck_from_name():
     proxy_prefix = "proxychains4 -f /etc/proxychains4.conf"
-    adb_target = f"{TAILSCALE_PHONE_IP}:5555"
+    adb_target = f"{TAILSCALE_PHONE_IP}"
     
     connection_result = subprocess.run(
         f"{proxy_prefix} adb connect {adb_target}",

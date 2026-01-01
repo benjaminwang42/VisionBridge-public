@@ -114,7 +114,7 @@ if [ -n "$TAILSCALE_AUTHKEY" ]; then
         while [ $AUTH_RETRY_COUNT -lt $MAX_AUTH_RETRIES ]; do
             AUTH_RETRY_COUNT=$((AUTH_RETRY_COUNT + 1))
             sleep 3
-            DEVICE_STATUS=$(proxychains4 -f /etc/proxychains4.conf adb devices | grep "${PHONE_IP}" || echo "")
+            DEVICE_STATUS=$(adb devices | grep "${PHONE_IP}" || echo "")
             
             if echo "$DEVICE_STATUS" | grep -q "device$"; then
                 echo "✓ ADB connected and authorized successfully"
