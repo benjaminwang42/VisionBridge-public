@@ -1,78 +1,35 @@
 #!/bin/sh
 
 mkdir -p /root/.android
+
 if [ -n "$ADB_PRIVATE_KEY" ] && [ -n "$ADB_PUBLIC_KEY" ]; then
     echo "=== Setting up ADB keys ==="
     
-    echo "Debug: First 100 chars of ADB_PRIVATE_KEY variable:"
-    echo "$ADB_PRIVATE_KEY" | head -c 100
-    echo ""
-    
-    echo "Decoding base64-encoded ADB_PRIVATE_KEY..."
-    if echo "$ADB_PRIVATE_KEY" | base64 -d > /root/.android/adbkey 2>/dev/null; then
+    if printf '%s' "$ADB_PRIVATE_KEY" | tr -d '\n\r ' | base64 -d > /root/.android/adbkey; then
         echo "✓ Successfully decoded ADB_PRIVATE_KEY"
+        chmod 600 /root/.android/adbkey
     else
-        echo "⚠ WARNING: Failed to decode ADB_PRIVATE_KEY as base64, trying as plain text..."
-        printf '%b' "$ADB_PRIVATE_KEY" > /root/.android/adbkey
+        echo "× ERROR: Failed to decode ADB_PRIVATE_KEY. Check your Base64 string."
+        exit 1
     fi
     
-    if echo "$ADB_PUBLIC_KEY" | base64 -d > /root/.android/adbkey.pub 2>/dev/null; then
-        if [ -s /root/.android/adbkey.pub ]; then
-            echo "✓ Successfully decoded ADB_PUBLIC_KEY"
-        else
-            echo "Base64 decode produced empty output, using ADB_PUBLIC_KEY as plain text..."
-            printf '%b' "$ADB_PUBLIC_KEY" > /root/.android/adbkey.pub
-        fi
+    if printf '%s' "$ADB_PUBLIC_KEY" | tr -d '\n\r ' | base64 -d > /root/.android/adbkey.pub; then
+        echo "✓ Successfully decoded ADB_PUBLIC_KEY"
+        chmod 644 /root/.android/adbkey.pub
     else
-        printf '%b' "$ADB_PUBLIC_KEY" > /root/.android/adbkey.pub
-    fi
-    
-    chmod 600 /root/.android/adbkey
-    chmod 644 /root/.android/adbkey.pub
-
-    echo "=== Verifying ADB key format ==="
-    FIRST_LINE=$(head -n 1 /root/.android/adbkey)
-    if echo "$FIRST_LINE" | grep -q "BEGIN.*PRIVATE KEY"; then
-        echo "✓ Private key format looks correct"
-        echo "  First line: $FIRST_LINE"
-    else
-        echo "⚠ WARNING: Private key may be malformed"
-        echo "  Actual first line: $FIRST_LINE"
-        echo "  First 3 lines of key file:"
-        head -n 3 /root/.android/adbkey | sed 's/^/    /'
-        
-        if echo "$FIRST_LINE" | grep -q "^MII"; then
-            echo ""
-            echo "  Key appears to start with base64 content (MII...) instead of header."
-            echo "  This suggests the BEGIN header line may be missing or on a different line."
-            echo "  Please verify ADB_PRIVATE_KEY in Railway includes the full key with:"
-            echo "    -----BEGIN PRIVATE KEY-----"
-            echo "    [base64 content]"
-            echo "    -----END PRIVATE KEY-----"
-        fi
-        
-        if grep -q "BEGIN.*PRIVATE KEY" /root/.android/adbkey; then
-            echo "  Note: BEGIN marker found in file, but not on first line"
-            grep -n "BEGIN.*PRIVATE KEY" /root/.android/adbkey | head -1 | sed 's/^/    Line /'
-        fi
+        echo "× ERROR: Failed to decode ADB_PUBLIC_KEY."
+        exit 1
     fi
 
-    if [ -f /root/.android/adbkey.pub ]; then
-        echo "Public key first 50 chars: $(head -c 50 /root/.android/adbkey.pub)"
-    fi
-    
-    if [ -f /root/.android/adbkey ] && [ -f /root/.android/adbkey.pub ]; then
-        PRIVATE_KEY_SIZE=$(wc -c < /root/.android/adbkey)
-        PUBLIC_KEY_SIZE=$(wc -c < /root/.android/adbkey.pub)
-        echo "✓ ADB keys written successfully (private: ${PRIVATE_KEY_SIZE} bytes, public: ${PUBLIC_KEY_SIZE} bytes)"
-        PUBLIC_KEY_PREVIEW=$(head -c 50 /root/.android/adbkey.pub)
-        echo "   Public key preview: ${PUBLIC_KEY_PREVIEW}..."
+    if head -n 1 /root/.android/adbkey | grep -q "BEGIN.*PRIVATE KEY"; then
+        echo "✓ Private key format looks correct (PEM header found)"
     else
-        echo "⚠ WARNING: ADB keys may not have been written correctly"
+        echo "⚠ WARNING: Private key header missing. ADB might fail to use this key."
     fi
 else
-    echo "⚠ WARNING: ADB_PRIVATE_KEY or ADB_PUBLIC_KEY not set - device authorization may be required"
+    echo "⚠ WARNING: ADB keys not provided - device authorization will likely fail."
 fi
+
 
 if [ -n "$TAILSCALE_AUTHKEY" ]; then
     echo "=== Starting Tailscale ==="
