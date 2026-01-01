@@ -108,6 +108,8 @@ async def get_deck_from_name():
         text_parts = [item.strip() for item in raw_text.split(',')]
         player_name = text_parts[0] if len(text_parts) > 0 else "N/A"
         clan_name = text_parts[1] if len(text_parts) > 1 else "N/A"
+        print("This is the player name: ", player_name)
+        print("This is the clan name: ", clan_name)
     except Exception as e:
         return {"status": "Error", "stage": "Gemini API", "message": str(e)}
 

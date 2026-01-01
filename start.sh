@@ -97,20 +97,24 @@ if [ -n "$TAILSCALE_AUTHKEY" ]; then
     if [ -n "$PHONE_IP" ]; then
         echo "Connecting to ADB device at ${PHONE_IP}:5555"
         
+        adb kill-server
+        export NO_PROXY="localhost,127.0.0.1"
         export ALL_PROXY="socks5://localhost:1055"
-        adb connect ${PHONE_IP}:5555
+        
+        timeout 15s adb connect ${PHONE_IP}:5555
         
         sleep 2
         
         if adb devices | grep -q "${PHONE_IP}:5555.*device"; then
             echo "✓ ADB connected successfully"
-            
-            unset ALL_PROXY 
-            echo "Proxy unset for FastAPI startup"
-        else
-            echo "ERROR: ADB connection failed"
             unset ALL_PROXY
-            exit 1
+            unset NO_PROXY
+        else
+            echo "⚠ ADB connection failed or device unauthorized."
+            echo "Current status:"
+            adb devices
+            unset ALL_PROXY
+            unset NO_PROXY
         fi
     fi
 else
