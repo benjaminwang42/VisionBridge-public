@@ -102,9 +102,9 @@ if [ -n "$TAILSCALE_AUTHKEY" ]; then
     if [ -n "$PHONE_IP" ]; then
         echo "=== Connecting to ADB device: ${PHONE_IP} ==="
         adb kill-server 2>/dev/null || true
+        adb start-server
         sleep 2
         
-        proxychains4 -f /etc/proxychains4.conf adb start-server
         proxychains4 -f /etc/proxychains4.conf adb connect ${PHONE_IP}
         
         MAX_AUTH_RETRIES=10
