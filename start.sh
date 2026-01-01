@@ -198,6 +198,31 @@ if [ -n "$TAILSCALE_AUTHKEY" ]; then
         fi
         echo ""
         
+        # Create a local port forward through SOCKS5 proxy
+        # This allows ADB server to connect to localhost, which gets forwarded through the proxy
+        # Use port 5556 to avoid conflicts with ADB's default port 5555
+        FORWARD_LOCAL_PORT=5556
+        echo "Setting up TCP port forward: localhost:${FORWARD_LOCAL_PORT} -> ${PHONE_HOST}:${PHONE_PORT} via SOCKS5"
+        python3 /app/app/socks_forwarder.py ${FORWARD_LOCAL_PORT} ${PHONE_HOST} ${PHONE_PORT} 127.0.0.1 1055 &
+        FORWARDER_PID=$!
+        sleep 3
+        
+        # Verify forwarder is running
+        sleep 2
+        if kill -0 $FORWARDER_PID 2>/dev/null; then
+            echo "✓ Port forwarder is running (PID: $FORWARDER_PID)"
+            # Test if the port is listening
+            if netstat -tuln 2>/dev/null | grep -q ":${FORWARD_LOCAL_PORT}" || ss -tuln 2>/dev/null | grep -q ":${FORWARD_LOCAL_PORT}"; then
+                echo "✓ Port ${FORWARD_LOCAL_PORT} is listening"
+            else
+                echo "⚠ WARNING: Port ${FORWARD_LOCAL_PORT} may not be listening yet"
+            fi
+        else
+            echo "⚠ ERROR: Port forwarder failed to start"
+            echo "Checking forwarder output..."
+            wait $FORWARDER_PID 2>&1 || true
+        fi
+        
         adb kill-server 2>/dev/null || true
         sleep 1
         adb start-server
@@ -206,10 +231,11 @@ if [ -n "$TAILSCALE_AUTHKEY" ]; then
         # Set ADB connection timeout
         export ADB_INSTALL_TIMEOUT=30
         
-        echo "Attempting initial ADB connection through proxychains..."
-        # Run with proxychains (keep output to see what's happening)
-        echo "Running: proxychains4 adb connect ${PHONE_IP}"
-        CONNECT_OUTPUT=$(proxychains4 -f /etc/proxychains4.conf adb connect ${PHONE_IP} 2>&1)
+        # Connect to the local forwarded port instead of the remote IP directly
+        FORWARDED_PHONE_IP="127.0.0.1:${FORWARD_LOCAL_PORT}"
+        echo "Attempting ADB connection to forwarded port ${FORWARDED_PHONE_IP}..."
+        echo "Running: adb connect ${FORWARDED_PHONE_IP}"
+        CONNECT_OUTPUT=$(adb connect ${FORWARDED_PHONE_IP} 2>&1)
         CONNECT_EXIT=$?
         
         # Check if the error is "No route to host" which suggests proxychains isn't working
@@ -250,8 +276,8 @@ if [ -n "$TAILSCALE_AUTHKEY" ]; then
             AUTH_RETRY_COUNT=$((AUTH_RETRY_COUNT + 1))
             sleep 4
             
-            # Use proxychains for adb devices too
-            DEVICE_STATUS=$(proxychains4 -f /etc/proxychains4.conf adb devices 2>/dev/null | grep "${PHONE_IP}" || echo "")
+            # Check device status (using forwarded port)
+            DEVICE_STATUS=$(adb devices 2>/dev/null | grep "${FORWARDED_PHONE_IP}" || echo "")
             
             if echo "$DEVICE_STATUS" | grep -q "device$"; then
                 echo "✓ ADB connected and authorized successfully"
@@ -265,19 +291,19 @@ if [ -n "$TAILSCALE_AUTHKEY" ]; then
                     echo ""
                 fi
                 echo "Reconnecting..."
-                proxychains4 -f /etc/proxychains4.conf adb connect ${PHONE_IP} 2>&1 || true
+                adb connect ${FORWARDED_PHONE_IP} 2>&1 || true
             elif echo "$DEVICE_STATUS" | grep -q "offline"; then
                 echo "⚠ Device is offline (attempt $AUTH_RETRY_COUNT/$MAX_AUTH_RETRIES), reconnecting..."
-                proxychains4 -f /etc/proxychains4.conf adb connect ${PHONE_IP} 2>&1 || true
+                adb connect ${FORWARDED_PHONE_IP} 2>&1 || true
             elif [ -z "$DEVICE_STATUS" ]; then
                 echo "⚠ Device not found (attempt $AUTH_RETRY_COUNT/$MAX_AUTH_RETRIES), reconnecting..."
-                proxychains4 -f /etc/proxychains4.conf adb connect ${PHONE_IP} 2>&1 || true
+                adb connect ${FORWARDED_PHONE_IP} 2>&1 || true
             fi
         done
         
         echo ""
         echo "Final ADB device status:"
-        proxychains4 -f /etc/proxychains4.conf adb devices 2>&1 || adb devices
+        adb devices 2>&1
         
         if [ "$DEVICE_AUTHORIZED" = false ]; then
             echo ""

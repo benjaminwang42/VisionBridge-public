@@ -7,6 +7,7 @@ RUN apt-get update && apt-get install -y \
     ca-certificates \
     proxychains4 \
     netcat-openbsd \
+    socat \
     && rm -rf /var/lib/apt/lists/*
 
 RUN printf "strict_chain\n\
@@ -28,6 +29,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY start.sh /start.sh
 RUN chmod +x /start.sh
 COPY . .
+RUN chmod +x /app/app/socks_forwarder.py
 
 ENV PORT=8080
 EXPOSE 8080
