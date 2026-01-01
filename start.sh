@@ -235,8 +235,13 @@ if [ -n "$TAILSCALE_AUTHKEY" ]; then
         FORWARDED_PHONE_IP="127.0.0.1:${FORWARD_LOCAL_PORT}"
         echo "Attempting ADB connection to forwarded port ${FORWARDED_PHONE_IP}..."
         echo "Running: adb connect ${FORWARDED_PHONE_IP}"
+        # Disconnect any existing connection first
+        adb disconnect ${FORWARDED_PHONE_IP} 2>&1 || true
+        sleep 1
         CONNECT_OUTPUT=$(adb connect ${FORWARDED_PHONE_IP} 2>&1)
         CONNECT_EXIT=$?
+        # Give ADB time to complete the connection handshake
+        sleep 3
         
         # Check if the error is "No route to host" which suggests proxychains isn't working
         if echo "${CONNECT_OUTPUT}" | grep -q "No route to host"; then
@@ -266,6 +271,7 @@ if [ -n "$TAILSCALE_AUTHKEY" ]; then
             echo "✓ Initial connection command completed (checking device status in loop)..."
         fi
         
+        # Wait longer for initial connection to stabilize
         sleep 5
         
         MAX_AUTH_RETRIES=15
@@ -274,10 +280,25 @@ if [ -n "$TAILSCALE_AUTHKEY" ]; then
         
         while [ $AUTH_RETRY_COUNT -lt $MAX_AUTH_RETRIES ]; do
             AUTH_RETRY_COUNT=$((AUTH_RETRY_COUNT + 1))
-            sleep 4
+            sleep 5  # Increased wait time to allow ADB handshake to complete
             
             # Check device status (using forwarded port)
-            DEVICE_STATUS=$(adb devices 2>/dev/null | grep "${FORWARDED_PHONE_IP}" || echo "")
+            DEVICES_OUTPUT=$(adb devices 2>/dev/null)
+            DEVICE_STATUS=$(echo "$DEVICES_OUTPUT" | grep "${FORWARDED_PHONE_IP}" || echo "")
+            
+            # Verify forwarder is still running
+            if ! kill -0 $FORWARDER_PID 2>/dev/null; then
+                echo "⚠ ERROR: Port forwarder process died! Restarting..."
+                python3 /app/app/socks_forwarder.py ${FORWARD_LOCAL_PORT} ${PHONE_HOST} ${PHONE_PORT} 127.0.0.1 1055 &
+                FORWARDER_PID=$!
+                sleep 3
+            fi
+            
+            # Debug: show full device status
+            if [ $AUTH_RETRY_COUNT -le 3 ] || [ $((AUTH_RETRY_COUNT % 3)) -eq 0 ]; then
+                echo "Device status check (attempt $AUTH_RETRY_COUNT/$MAX_AUTH_RETRIES):"
+                echo "$DEVICES_OUTPUT" | grep -E "(List|${FORWARDED_PHONE_IP})" || echo "No devices found"
+            fi
             
             if echo "$DEVICE_STATUS" | grep -q "device$"; then
                 echo "✓ ADB connected and authorized successfully"
@@ -293,11 +314,22 @@ if [ -n "$TAILSCALE_AUTHKEY" ]; then
                 echo "Reconnecting..."
                 adb connect ${FORWARDED_PHONE_IP} 2>&1 || true
             elif echo "$DEVICE_STATUS" | grep -q "offline"; then
-                echo "⚠ Device is offline (attempt $AUTH_RETRY_COUNT/$MAX_AUTH_RETRIES), reconnecting..."
-                adb connect ${FORWARDED_PHONE_IP} 2>&1 || true
+                if [ $AUTH_RETRY_COUNT -eq 1 ]; then
+                    # First time seeing offline - might still be connecting, wait a bit longer
+                    echo "⚠ Device is offline (attempt $AUTH_RETRY_COUNT/$MAX_AUTH_RETRIES), waiting for connection to establish..."
+                    sleep 5
+                else
+                    # Subsequent offline status - disconnect and reconnect
+                    echo "⚠ Device is offline (attempt $AUTH_RETRY_COUNT/$MAX_AUTH_RETRIES), disconnecting and reconnecting..."
+                    adb disconnect ${FORWARDED_PHONE_IP} 2>&1 || true
+                    sleep 2
+                    adb connect ${FORWARDED_PHONE_IP} 2>&1 || true
+                    sleep 5  # Give ADB more time to complete handshake
+                fi
             elif [ -z "$DEVICE_STATUS" ]; then
-                echo "⚠ Device not found (attempt $AUTH_RETRY_COUNT/$MAX_AUTH_RETRIES), reconnecting..."
+                echo "⚠ Device not found (attempt $AUTH_RETRY_COUNT/$MAX_AUTH_RETRIES), connecting..."
                 adb connect ${FORWARDED_PHONE_IP} 2>&1 || true
+                sleep 3  # Give ADB time to complete handshake
             fi
         done
         
