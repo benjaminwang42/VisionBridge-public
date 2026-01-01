@@ -3,18 +3,48 @@
 mkdir -p /root/.android
 if [ -n "$ADB_PRIVATE_KEY" ] && [ -n "$ADB_PUBLIC_KEY" ]; then
     echo "=== Setting up ADB keys ==="
-    printf '%s\n' "$ADB_PRIVATE_KEY" > /root/.android/adbkey
-    printf '%s\n' "$ADB_PUBLIC_KEY" > /root/.android/adbkey.pub
+    
+    # Debug: Show first 100 chars of the key variable (before processing)
+    echo "Debug: First 100 chars of ADB_PRIVATE_KEY variable:"
+    echo "$ADB_PRIVATE_KEY" | head -c 100
+    echo ""
+    
+    # Handle escaped newlines - Railway may store newlines as \n literals in the env var
+    # printf %b interprets backslash escape sequences like \n
+    # This is the most reliable POSIX-compatible method
+    printf '%b' "$ADB_PRIVATE_KEY" > /root/.android/adbkey
+    printf '%b' "$ADB_PUBLIC_KEY" > /root/.android/adbkey.pub
     
     chmod 600 /root/.android/adbkey
     chmod 644 /root/.android/adbkey.pub
 
     echo "=== Verifying ADB key format ==="
-    if head -n 1 /root/.android/adbkey | grep -q "BEGIN.*PRIVATE KEY"; then
+    FIRST_LINE=$(head -n 1 /root/.android/adbkey)
+    if echo "$FIRST_LINE" | grep -q "BEGIN.*PRIVATE KEY"; then
         echo "✓ Private key format looks correct"
+        echo "  First line: $FIRST_LINE"
     else
         echo "⚠ WARNING: Private key may be malformed"
-        echo "Actual First line: $(head -n 1 /root/.android/adbkey)"
+        echo "  Actual first line: $FIRST_LINE"
+        echo "  First 3 lines of key file:"
+        head -n 3 /root/.android/adbkey | sed 's/^/    /'
+        
+        # Check if the key content exists but headers are missing
+        if echo "$FIRST_LINE" | grep -q "^MII"; then
+            echo ""
+            echo "  Key appears to start with base64 content (MII...) instead of header."
+            echo "  This suggests the BEGIN header line may be missing or on a different line."
+            echo "  Please verify ADB_PRIVATE_KEY in Railway includes the full key with:"
+            echo "    -----BEGIN PRIVATE KEY-----"
+            echo "    [base64 content]"
+            echo "    -----END PRIVATE KEY-----"
+        fi
+        
+        # Check if BEGIN is somewhere in the file
+        if grep -q "BEGIN.*PRIVATE KEY" /root/.android/adbkey; then
+            echo "  Note: BEGIN marker found in file, but not on first line"
+            grep -n "BEGIN.*PRIVATE KEY" /root/.android/adbkey | head -1 | sed 's/^/    Line /'
+        fi
     fi
 
     if [ -f /root/.android/adbkey.pub ]; then
