@@ -96,15 +96,22 @@ if [ -n "$TAILSCALE_AUTHKEY" ]; then
     
     if [ -n "$PHONE_IP" ]; then
         echo "Connecting to ADB device at ${PHONE_IP}:5555"
+        
+        export ALL_PROXY="socks5://localhost:1055"
         adb connect ${PHONE_IP}:5555
-        if [ $? -eq 0 ]; then
+        
+        sleep 2
+        
+        if adb devices | grep -q "${PHONE_IP}:5555.*device"; then
             echo "✓ ADB connected successfully"
+            
+            unset ALL_PROXY 
+            echo "Proxy unset for FastAPI startup"
         else
             echo "ERROR: ADB connection failed"
+            unset ALL_PROXY
             exit 1
         fi
-    else
-        echo "WARNING: PHONE_IP not set, skipping ADB connection"
     fi
 else
     echo "ERROR: TAILSCALE_AUTHKEY not provided, but required for this application"
