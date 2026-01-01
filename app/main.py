@@ -40,7 +40,38 @@ async def get_deck_from_name():
     adb_env = os.environ.copy()
     adb_env["ALL_PROXY"] = "socks5://localhost:1055"
     
-    subprocess.run(f"adb connect {adb_target}", shell=True, env=adb_env)
+    connection_result = subprocess.run(
+        f"adb connect {adb_target}",
+        shell=True,
+        env=adb_env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        timeout=10
+    )
+    
+    if connection_result.returncode != 0:
+        return {
+            "error": "ADB connection failed",
+            "details": f"Failed to connect: {connection_result.stderr}"
+        }
+
+    await asyncio.sleep(2)
+
+    devices_result = subprocess.run(
+        "adb devices",
+        shell=True,
+        env=adb_env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True
+    )
+    
+    if adb_target not in devices_result.stdout or "device" not in devices_result.stdout:
+        return {
+            "error": "ADB device not connected",
+            "details": f"Device {adb_target} not found in adb devices. Output: {devices_result.stdout}"
+        }
     try:
         result = subprocess.run(
             f"adb -s {adb_target} exec-out screencap -p",
@@ -49,6 +80,7 @@ async def get_deck_from_name():
             stderr=subprocess.PIPE,
             check=True,
             env=adb_env,
+            timeout=10
         )
         
         img = Image.open(io.BytesIO(result.stdout))
