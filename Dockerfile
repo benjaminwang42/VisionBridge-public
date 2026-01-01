@@ -14,8 +14,6 @@ proxy_dns\n\
 remote_dns_subnet 224\n\
 tcp_read_time_out 30000\n\
 tcp_connect_time_out 30000\n\
-localnet 127.0.0.0/255.0.0.0\n\
-localnet ::1/128\n\
 [ProxyList]\n\
 socks5 127.0.0.1 1055\n" > /etc/proxychains4.conf
 

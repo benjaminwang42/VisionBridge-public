@@ -106,6 +106,33 @@ if [ -n "$TAILSCALE_AUTHKEY" ]; then
     tailscale status || true
     echo ""
     
+    # Verify SOCKS5 proxy is listening
+    echo "Verifying SOCKS5 proxy is ready..."
+    if netstat -tuln 2>/dev/null | grep -q ":1055" || ss -tuln 2>/dev/null | grep -q ":1055"; then
+        echo "✓ SOCKS5 proxy is listening on port 1055"
+    else
+        echo "⚠ WARNING: SOCKS5 proxy may not be listening on port 1055"
+        echo "Checking if tailscaled process is running..."
+        ps aux | grep tailscaled | grep -v grep || echo "tailscaled process not found"
+        echo "Note: With userspace-networking, SOCKS5 proxy should be on localhost:1055"
+    fi
+    
+    # Test SOCKS5 proxy directly with curl
+    echo "Testing SOCKS5 proxy with curl..."
+    if command -v curl >/dev/null 2>&1; then
+        # Try to use the SOCKS5 proxy to connect to a Tailscale IP
+        TEST_IP=$(tailscale status 2>/dev/null | grep -E "^100\." | head -1 | awk '{print $1}' || echo "")
+        if [ -n "${TEST_IP}" ] && [ "${TEST_IP}" != "${PHONE_HOST}" ]; then
+            echo "Testing SOCKS5 proxy connectivity to ${TEST_IP}..."
+            if curl -s --max-time 5 --socks5-hostname 127.0.0.1:1055 http://${TEST_IP}:80 2>&1 | head -1 | grep -q "HTTP\|connected\|timeout"; then
+                echo "✓ SOCKS5 proxy appears to be working"
+            else
+                echo "⚠ SOCKS5 proxy test inconclusive (expected for non-HTTP services)"
+            fi
+        fi
+    fi
+    echo ""
+    
     if [ -n "$PHONE_IP" ]; then
         echo "=== Connecting to ADB device: ${PHONE_IP} ==="
         
@@ -123,6 +150,54 @@ if [ -n "$TAILSCALE_AUTHKEY" ]; then
             echo "⚠ Phone IP does not appear to be a Tailscale IP (expected 100.x.x.x)"
         fi
         
+        # Verify phone device is online in Tailscale
+        echo "Checking if phone device is online in Tailscale..."
+        PHONE_IN_STATUS=false
+        if tailscale status 2>/dev/null | grep -q "${PHONE_HOST}"; then
+            PHONE_IN_STATUS=true
+            PHONE_STATUS=$(tailscale status 2>/dev/null | grep "${PHONE_HOST}" | awk '{for(i=NF-2;i<=NF;i++) printf "%s ", $i; print ""}' | xargs || echo "unknown")
+            echo "Phone device status in Tailscale: ${PHONE_STATUS}"
+            if echo "${PHONE_STATUS}" | grep -qi "offline"; then
+                echo "⚠ WARNING: Phone device appears offline in Tailscale."
+                echo "Waiting up to 30 seconds for device to come online..."
+                WAIT_COUNT=0
+                while [ $WAIT_COUNT -lt 10 ]; do
+                    sleep 3
+                    WAIT_COUNT=$((WAIT_COUNT + 1))
+                    if tailscale status 2>/dev/null | grep "${PHONE_HOST}" | grep -vq "offline"; then
+                        echo "✓ Phone device is now online!"
+                        break
+                    fi
+                    echo "Still waiting... (${WAIT_COUNT}/10)"
+                done
+            fi
+        else
+            echo "⚠ WARNING: Phone device ${PHONE_HOST} not found in Tailscale status"
+            echo "Available Tailscale devices:"
+            tailscale status 2>/dev/null | grep -E "^100\." | head -5 || echo "None found"
+        fi
+        
+        # Test connectivity to phone through Tailscale
+        echo "Testing connectivity to ${PHONE_HOST} through Tailscale..."
+        if timeout 10 tailscale ping -c 1 ${PHONE_HOST} 2>&1 | grep -q "pong"; then
+            echo "✓ Can ping ${PHONE_HOST} through Tailscale"
+        else
+            echo "⚠ WARNING: Cannot ping ${PHONE_HOST} through Tailscale"
+            echo "This may indicate the device is offline or unreachable"
+        fi
+        
+        # Test SOCKS5 proxy with a simple connection test
+        echo "Testing SOCKS5 proxy with proxychains..."
+        TEST_OUTPUT=$(timeout 10 proxychains4 -f /etc/proxychains4.conf nc -zv -w 5 ${PHONE_HOST} ${PHONE_PORT} 2>&1 || echo "test_failed")
+        if echo "${TEST_OUTPUT}" | grep -qi "succeeded\|open\|connected"; then
+            echo "✓ SOCKS5 proxy can reach ${PHONE_HOST}:${PHONE_PORT}"
+        else
+            echo "⚠ SOCKS5 proxy test failed or inconclusive"
+            echo "Test output: ${TEST_OUTPUT}"
+            echo "This may be normal - ADB uses a custom protocol"
+        fi
+        echo ""
+        
         adb kill-server 2>/dev/null || true
         sleep 1
         adb start-server
@@ -131,8 +206,40 @@ if [ -n "$TAILSCALE_AUTHKEY" ]; then
         # Set ADB connection timeout
         export ADB_INSTALL_TIMEOUT=30
         
-        echo "Attempting initial ADB connection..."
-        proxychains4 -f /etc/proxychains4.conf adb connect ${PHONE_IP} 2>&1 || true
+        echo "Attempting initial ADB connection through proxychains..."
+        # Run with proxychains (keep output to see what's happening)
+        echo "Running: proxychains4 adb connect ${PHONE_IP}"
+        CONNECT_OUTPUT=$(proxychains4 -f /etc/proxychains4.conf adb connect ${PHONE_IP} 2>&1)
+        CONNECT_EXIT=$?
+        
+        # Check if the error is "No route to host" which suggests proxychains isn't working
+        if echo "${CONNECT_OUTPUT}" | grep -q "No route to host"; then
+            echo "⚠ ERROR: 'No route to host' detected"
+            echo "This error suggests the connection is not being routed through proxychains"
+            echo ""
+            echo "Debugging information:"
+            echo "1. Checking if proxychains library is loaded..."
+            ldd $(which adb) 2>/dev/null | head -5 || echo "Cannot check ADB libraries"
+            echo ""
+            echo "2. Testing proxychains with a simple network command..."
+            proxychains4 -f /etc/proxychains4.conf timeout 3 nc -zv 127.0.0.1 22 2>&1 | head -3 || echo "Proxychains test completed"
+            echo ""
+            echo "3. Verifying proxychains config..."
+            cat /etc/proxychains4.conf
+            echo ""
+        fi
+        
+        echo "Connection attempt output:"
+        echo "${CONNECT_OUTPUT}"
+        echo ""
+        
+        if [ $CONNECT_EXIT -ne 0 ]; then
+            echo "⚠ Initial connection attempt failed (exit code: $CONNECT_EXIT)"
+            echo "Will retry in the connection loop..."
+        else
+            echo "✓ Initial connection command completed (checking device status in loop)..."
+        fi
+        
         sleep 5
         
         MAX_AUTH_RETRIES=15
