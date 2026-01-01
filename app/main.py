@@ -38,23 +38,7 @@ async def get_deck_from_name():
     # The port forwarder handles routing through SOCKS5
     adb_target = "127.0.0.1:5556"
     
-    connection_result = subprocess.run(
-        f"adb connect {adb_target}",
-        shell=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        timeout=10
-    )
-    
-    if connection_result.returncode != 0:
-        return {
-            "error": "ADB connection failed",
-            "details": f"Failed to connect: {connection_result.stderr}"
-        }
-
-    await asyncio.sleep(2)
-
+    # Check device status first
     devices_result = subprocess.run(
         f"adb devices",
         shell=True,
@@ -63,11 +47,75 @@ async def get_deck_from_name():
         text=True
     )
     
-    if adb_target not in devices_result.stdout or "device" not in devices_result.stdout:
-        return {
-            "error": "ADB device not connected",
-            "details": f"Device {adb_target} not found in adb devices. Output: {devices_result.stdout}"
-        }
+    device_status = None
+    if adb_target in devices_result.stdout:
+        # Extract the status (device, offline, unauthorized, etc.)
+        for line in devices_result.stdout.split('\n'):
+            if adb_target in line:
+                parts = line.split()
+                if len(parts) >= 2:
+                    device_status = parts[1]
+                break
+    
+    # Only reconnect if device is not connected and authorized
+    if device_status != "device":
+        if device_status == "offline":
+            # Device is offline, try to reconnect
+            print(f"Device {adb_target} is offline, attempting to reconnect...")
+        elif device_status is None:
+            # Device not in list, connect
+            print(f"Device {adb_target} not found, connecting...")
+        else:
+            # Device is unauthorized or other state
+            print(f"Device {adb_target} status: {device_status}, attempting to reconnect...")
+        
+        connection_result = subprocess.run(
+            f"adb connect {adb_target}",
+            shell=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=10
+        )
+        
+        if connection_result.returncode != 0:
+            return {
+                "error": "ADB connection failed",
+                "details": f"Failed to connect: {connection_result.stdout} {connection_result.stderr}"
+            }
+        
+        # Wait for device to be ready
+        await asyncio.sleep(2)
+        
+        # Verify connection succeeded
+        devices_result = subprocess.run(
+            f"adb devices",
+            shell=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        
+        if adb_target not in devices_result.stdout:
+            return {
+                "error": "ADB device not found after connection",
+                "details": f"Device {adb_target} not in adb devices. Output: {devices_result.stdout}"
+            }
+        
+        # Check if device is now authorized
+        device_status = None
+        for line in devices_result.stdout.split('\n'):
+            if adb_target in line:
+                parts = line.split()
+                if len(parts) >= 2:
+                    device_status = parts[1]
+                break
+        
+        if device_status != "device":
+            return {
+                "error": "ADB device not ready",
+                "details": f"Device {adb_target} status: {device_status}. Output: {devices_result.stdout}"
+            }
     try:
         result = subprocess.run(
             f"adb -s {adb_target} exec-out screencap -p",
@@ -75,14 +123,29 @@ async def get_deck_from_name():
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=True,
-            timeout=10
+            timeout=15
         )
+        
+        if not result.stdout or len(result.stdout) == 0:
+            return {"error": "ADB screencap returned empty data", "details": "The screenshot command completed but returned no data"}
         
         img = Image.open(io.BytesIO(result.stdout))
     except subprocess.CalledProcessError as e:
-        return {"error": "ADB failed. Is the phone screen on?", "details": str(e.stderr)}
+        error_msg = str(e.stderr) if e.stderr else str(e)
+        if "offline" in error_msg.lower():
+            return {
+                "error": "ADB device went offline", 
+                "details": f"Device {adb_target} is offline. Error: {error_msg}. The connection may have been lost."
+            }
+        elif "unauthorized" in error_msg.lower():
+            return {
+                "error": "ADB device unauthorized",
+                "details": f"Device {adb_target} is not authorized. Error: {error_msg}"
+            }
+        else:
+            return {"error": "ADB screencap failed", "details": error_msg}
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": "Screenshot processing failed", "details": str(e)}
     w, h = img.size
     left = w * 0.09
     top = h * 0.07
