@@ -6,7 +6,7 @@
   <h1 align="center">VisionBridge</h1>
 
   <p align="center">
-    AI voice agent that can parse your phone's screen and perform analysis using the data.
+    AI voice agent that can parse your phone's screen and performs analysis using the data.
   </p>
 </div>
 
