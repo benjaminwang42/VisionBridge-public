@@ -12,7 +12,7 @@
 
 ## About The Project
 
-VisionBridge is an AI voice agent that acts as real-time tactical assistant designed for for the game, Clash Royale. The voice agent is able to parse the screen of a mobile phone and uses this to comb through competitive data to give the user an advantage.
+VisionBridge is an AI voice agent that acts as real-time tactical assistant designed for the game, Clash Royale. The voice agent is able to parse the screen of a mobile phone and uses this to comb through competitive data to give the user an advantage.
 
 Instead of manually searching for an opponent's history, the agent observes your mobile screen, identifies your opponent, and speaks their likely deck composition directly to you. 
 
